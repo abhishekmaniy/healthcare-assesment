@@ -1,13 +1,31 @@
 "use client"
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useAuth } from '@/contexts/auth-context'
 import { useLocation } from '@/contexts/location-context'
 import { Users, Clock, MapPin, TrendingUp, Calendar, Settings, LogOut } from 'lucide-react'
-import { Button, Card, Input, Table, Tabs, Tag, Form, Row, Col, Space, Typography } from 'antd'
+import { Button, Card, Input, Table, Tabs, Tag, Form, Row, Col, Space, Typography, Modal, Spin } from 'antd'
 import type { TableProps } from 'antd'
+import MapSelector from './map'
+import { gql, useMutation, useQuery } from '@apollo/client'
 
 const { Title, Text } = Typography
+
+
+interface StaffLocation {
+  id: string;
+  name: string;
+  role: string;
+  lat: number;
+  lng: number;
+  radius: number; // in meters
+}
+
+const mockStaffLocations: StaffLocation[] = [
+  { id: "1", name: "Nurse Mike Chen", role: "NURSE", lat: 40.7128, lng: -74.0060, radius: 2000 },
+  { id: "2", name: "Dr. Emily Rodriguez", role: "DOCTOR", lat: 40.7150, lng: -74.0020, radius: 1500 },
+];
+
 
 interface ClockRecord {
   id: string
@@ -43,8 +61,38 @@ const mockClockRecords: ClockRecord[] = [
   }
 ]
 
+const GET_STAFF_LOCATIONS = gql`
+  query GetStaffLocations {
+    staffLocations {
+      role
+      label
+      workerZone {
+        id
+        lat
+        lng
+        radius
+      }
+    }
+  }
+`;
+
+const UPDATE_STAFF_LOCATION = gql`
+mutation UpdateStaffLocation($id: ID!, $lat: Float!, $lng: Float!, $radius: Float!) {
+  updateStaffLocation(id: $id, lat: $lat, lng: $lng, radius: $radius) {
+    role
+    label
+    workerZone {
+      id
+      lat
+      lng
+      radius
+    }
+  }
+}
+`;
+
 export function ManagerDashboard() {
-  const { user, logout } = useAuth()
+  const { user } = useAuth()
   const { perimeter, setPerimeter } = useLocation()
   const [clockRecords] = useState<ClockRecord[]>(mockClockRecords)
   const [newPerimeter, setNewPerimeter] = useState({
@@ -52,6 +100,25 @@ export function ManagerDashboard() {
     lng: perimeter.lng.toString(),
     radius: (perimeter.radius / 1000).toString()
   })
+  const [selectedStaff, setSelectedStaff] = useState<StaffLocation | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [originalStaffData, setOriginalStaffData] = useState<StaffLocation | null>(null);
+
+
+  const {
+    data: locationData,
+    loading: locationsLoading,
+    error: locationsError,
+    refetch: refetchLocations,
+  } = useQuery(GET_STAFF_LOCATIONS);
+
+
+  const [updateStaffLocation, { loading: updateLoading }] = useMutation(UPDATE_STAFF_LOCATION, {
+    onCompleted: () => {
+      setIsModalOpen(false);
+      refetchLocations();
+    },
+  });
 
   const activeWorkers = clockRecords.filter(r => !r.clockOut)
 
@@ -60,15 +127,26 @@ export function ManagerDashboard() {
     return r.clockIn.toDateString() === today.toDateString()
   })
 
+  const isChanged = useMemo(() => {
+    if (!selectedStaff || !originalStaffData) return false;
+    return (
+      selectedStaff.lat !== originalStaffData.lat ||
+      selectedStaff.lng !== originalStaffData.lng ||
+      selectedStaff.radius !== originalStaffData.radius
+    );
+  }, [selectedStaff, originalStaffData]);
+
   const avgHoursToday =
     todayRecords.length > 0
       ? todayRecords.reduce((acc, r) => {
-          const hours = r.clockOut
-            ? (r.clockOut.getTime() - r.clockIn.getTime()) / (1000 * 60 * 60)
-            : (Date.now() - r.clockIn.getTime()) / (1000 * 60 * 60)
-          return acc + hours
-        }, 0) / todayRecords.length
+        const hours = r.clockOut
+          ? (r.clockOut.getTime() - r.clockIn.getTime()) / (1000 * 60 * 60)
+          : (Date.now() - r.clockIn.getTime()) / (1000 * 60 * 60)
+        return acc + hours
+      }, 0) / todayRecords.length
       : 0
+
+
 
   const handleUpdatePerimeter = () => {
     setPerimeter({
@@ -163,6 +241,59 @@ export function ManagerDashboard() {
     }
   ]
 
+
+  const handleRowClick = (record: StaffLocation) => {
+    setSelectedStaff({ ...record });
+    setOriginalStaffData({ ...record });
+    setIsModalOpen(true);
+  };
+
+
+  const handleMapClick = (lat: number, lng: number) => {
+    setSelectedStaff(prev => prev ? { ...prev, lat, lng } : null);
+  };
+
+  const handleUpdateRadius = (radiusKm: string) => {
+    setSelectedStaff(prev => prev ? { ...prev, radius: parseFloat(radiusKm) * 1000 } : null);
+  };
+
+  const handleSave = () => {
+    if (!selectedStaff) return;
+    updateStaffLocation({
+      variables: {
+        id: selectedStaff.id,
+        lat: selectedStaff.lat,
+        lng: selectedStaff.lng,
+        radius: selectedStaff.radius,
+      },
+    });
+  };
+
+  const locationColumns = [
+    { title: "Name", dataIndex: "name", key: "name" },
+    { title: "Role", dataIndex: "role", key: "role" },
+    {
+      title: "Latitude",
+      dataIndex: "lat",
+      key: "lat",
+      render: (lat: number) => lat.toFixed(4),
+    },
+    {
+      title: "Longitude",
+      dataIndex: "lng",
+      key: "lng",
+      render: (lng: number) => lng.toFixed(4),
+    },
+    {
+      title: "Radius (km)",
+      dataIndex: "radius",
+      key: "radius",
+      render: (radius: number) => (radius / 1000).toFixed(1),
+    },
+  ];
+
+
+
   return (
     <div style={{ padding: '16px', background: '#f5f5f5', minHeight: '100vh' }}>
       {/* Header */}
@@ -175,9 +306,11 @@ export function ManagerDashboard() {
               <Text type="secondary">Welcome back, {user?.name}</Text>
             </div>
           </Space>
-          <Button type="link" icon={<LogOut size={16} />} onClick={logout}>
-            Logout
-          </Button>
+          <a href="/api/auth/logout">
+            <Button type="link" icon={<LogOut size={16} />} >
+              Logout
+            </Button>
+          </a>
         </Space>
       </Card>
 
@@ -258,53 +391,109 @@ export function ManagerDashboard() {
             )
           },
           {
-            key: '3',
-            label: 'Location Settings',
+            key: "3",
+            label: "Location Settings",
             children: (
               <Card>
-                <Title level={5}>Location Perimeter Settings</Title>
+                <Title level={5}>Staff Location Settings</Title>
                 <Text type="secondary">
-                  Configure the allowed area where workers can clock in
+                  Set allowed perimeter for each staff member
                 </Text>
-                <Form layout="vertical" style={{ marginTop: 16 }}>
-                  <Row gutter={16}>
-                    <Col xs={24} md={8}>
-                      <Form.Item label="Latitude">
+
+                {locationsLoading ? (
+                  <div style={{ textAlign: "center", padding: 20 }}>
+                    <Spin size="large" />
+                  </div>
+                ) : locationsError ? (
+                  <Text type="danger">Failed to load staff locations</Text>
+                ) : (
+                  <Table
+                    columns={locationColumns}
+                    dataSource={locationData?.staffLocations?.map((loc: any) => ({
+                      id: loc.workerZone?.id || loc.role,
+                      name: loc.label || loc.role,
+                      role: loc.role,
+                      lat: loc.workerZone?.lat || 0,
+                      lng: loc.workerZone?.lng || 0,
+                      radius: loc.workerZone?.radius || 0,
+                    })) || []}
+                    rowKey="id"
+                    onRow={(record: StaffLocation) => ({
+                      onClick: () => handleRowClick(record),
+                    })}
+                    style={{ marginTop: 16 }}
+                  />
+                )}
+
+                {/* Modal */}
+                <Modal
+                  title={`Edit Location for ${selectedStaff?.name}`}
+                  open={isModalOpen}
+                  onCancel={() => setIsModalOpen(false)}
+                  footer={null}
+                  width={800}
+                >
+                  {selectedStaff && (
+                    <div style={{ display: "flex", flexDirection: "column", height: "500px" }}>
+                      <MapSelector
+                        initialLat={selectedStaff.lat}
+                        initialLng={selectedStaff.lng}
+                        radius={selectedStaff.radius}
+                        onLocationChange={(lat, lng) => {
+                          setSelectedStaff((prev) => (prev ? { ...prev, lat, lng } : null));
+                        }}
+                      />
+
+                      <div style={{ display: "flex", alignItems: "center", marginTop: 16, gap: "8px" }}>
                         <Input
-                          value={newPerimeter.lat}
-                          onChange={e => setNewPerimeter(prev => ({ ...prev, lat: e.target.value }))}
+                          style={{ width: "150px" }}
+                          value={selectedStaff.lat.toString()}
+                          onChange={(e) =>
+                            setSelectedStaff((prev) =>
+                              prev ? { ...prev, lat: parseFloat(e.target.value) || 0 } : null
+                            )
+                          }
+                          placeholder="Latitude"
                         />
-                      </Form.Item>
-                    </Col>
-                    <Col xs={24} md={8}>
-                      <Form.Item label="Longitude">
+
                         <Input
-                          value={newPerimeter.lng}
-                          onChange={e => setNewPerimeter(prev => ({ ...prev, lng: e.target.value }))}
+                          style={{ width: "150px" }}
+                          value={selectedStaff.lng.toString()}
+                          onChange={(e) =>
+                            setSelectedStaff((prev) =>
+                              prev ? { ...prev, lng: parseFloat(e.target.value) || 0 } : null
+                            )
+                          }
+                          placeholder="Longitude"
                         />
-                      </Form.Item>
-                    </Col>
-                    <Col xs={24} md={8}>
-                      <Form.Item label="Radius (km)">
+
                         <Input
-                          value={newPerimeter.radius}
-                          onChange={e => setNewPerimeter(prev => ({ ...prev, radius: e.target.value }))}
+                          style={{ width: "150px" }}
+                          value={(selectedStaff.radius / 1000).toString()}
+                          onChange={(e) =>
+                            setSelectedStaff((prev) =>
+                              prev ? { ...prev, radius: (parseFloat(e.target.value) || 0) * 1000 } : null
+                            )
+                          }
+                          placeholder="Radius"
+                          suffix="km"
                         />
-                      </Form.Item>
-                    </Col>
-                  </Row>
-                  <Space>
-                    <Button type="primary" icon={<Settings size={16} />} onClick={handleUpdatePerimeter}>
-                      Update Perimeter
-                    </Button>
-                    <Text>
-                      Current perimeter: {perimeter.radius / 1000} km from {perimeter.lat.toFixed(4)}, {perimeter.lng.toFixed(4)}
-                    </Text>
-                  </Space>
-                </Form>
+
+                        <Button
+                          type="primary"
+                          onClick={handleSave}
+                          disabled={!isChanged || updateLoading}
+                          loading={updateLoading}
+                        >
+                          Update
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </Modal>
               </Card>
-            )
-          }
+            ),
+          },
         ]}
       />
     </div>

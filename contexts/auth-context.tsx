@@ -1,93 +1,64 @@
 "use client"
 
-import React, { createContext, useContext, useState, useEffect } from 'react'
+import { User } from '@/types'
+import React, { createContext, useContext, useState, useEffect, Dispatch, SetStateAction } from 'react'
+import { gql, useQuery } from "@apollo/client"
+import { useUser } from '@auth0/nextjs-auth0/client'
 
-interface User {
-  id: string
-  name: string
-  email: string
-  role: 'manager' | 'worker'
-  department?: string
-}
 
 interface AuthContextType {
   user: User | null
   isAuthenticated: boolean
-  login: (email: string, password: string) => Promise<boolean>
-  logout: () => void
-  register: (userData: Omit<User, 'id'> & { password: string }) => Promise<boolean>
+  setUser: Dispatch<SetStateAction<User | null>>
+  setIsAuthenticated: Dispatch<SetStateAction<boolean>>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
-const mockUsers: (User & { password: string })[] = [
-  {
-    id: '1',
-    name: 'Dr. Sarah Johnson',
-    email: 'manager@hospital.com',
-    role: 'manager',
-    department: 'Emergency',
-    password: 'manager123'
-  },
-  {
-    id: '2',
-    name: 'Nurse Mike Chen',
-    email: 'worker@hospital.com',
-    role: 'worker',
-    department: 'ICU',
-    password: 'worker123'
+const ME = gql`
+  query Me {
+    me {
+      id
+      auth0Id
+      name
+      email
+      picture
+      role
+      createdAt
+      updatedAt
+    }
   }
-]
+`;
+
+
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const { user: auth0User, isLoading: auth0Loading } = useUser();
+  const [error, setError] = useState<string | null>(null);
+
+  const { data, loading: meLoading, refetch } = useQuery(ME, {
+    skip: !auth0User,
+    fetchPolicy: "network-only",
+    onError: () => {
+      
+    }
+  });
 
   useEffect(() => {
-    // Check for stored auth on mount
-    const storedUser = localStorage.getItem('healthcare_user')
-    if (storedUser) {
-      setUser(JSON.parse(storedUser))
-      setIsAuthenticated(true)
-    }
-  }, [])
+    if (!auth0Loading && auth0User) {
+      // If me query returned user, store it
+      if (data?.me) {
+        setUser(data.me);
+        setIsAuthenticated(true)
+      }
 
-  const login = async (email: string, password: string): Promise<boolean> => {
-    const foundUser = mockUsers.find(u => u.email === email && u.password === password)
-    if (foundUser) {
-      const { password: _, ...userWithoutPassword } = foundUser
-      setUser(userWithoutPassword)
-      setIsAuthenticated(true)
-      localStorage.setItem('healthcare_user', JSON.stringify(userWithoutPassword))
-      return true
     }
-    return false
-  }
-
-  const logout = () => {
-    setUser(null)
-    setIsAuthenticated(false)
-    localStorage.removeItem('healthcare_user')
-  }
-
-  const register = async (userData: Omit<User, 'id'> & { password: string }): Promise<boolean> => {
-    // In a real app, this would make an API call
-    const newUser: User = {
-      id: Date.now().toString(),
-      name: userData.name,
-      email: userData.email,
-      role: userData.role,
-      department: userData.department
-    }
-    
-    setUser(newUser)
-    setIsAuthenticated(true)
-    localStorage.setItem('healthcare_user', JSON.stringify(newUser))
-    return true
-  }
+  }, [auth0User, auth0Loading, data]);
 
   return (
-    <AuthContext.Provider value={{ user, isAuthenticated, login, logout, register }}>
+    <AuthContext.Provider value={{ user, isAuthenticated, setUser , setIsAuthenticated }}>
       {children}
     </AuthContext.Provider>
   )

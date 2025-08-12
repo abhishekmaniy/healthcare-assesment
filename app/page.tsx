@@ -11,7 +11,6 @@ import { useUser } from "@auth0/nextjs-auth0/client";
 
 export default function Home() {
 
-
   const { user, error, isLoading } = useUser()
   const { user: contextUser, isAuthenticated } = useAuth()
 
@@ -19,12 +18,11 @@ export default function Home() {
   if (error) return <div>{error.message}</div>
 
   if (user && contextUser) {
-    return (contextUser.role === "worker" ? <WorkerDashboard /> : <ManagerDashboard />)
+    return (contextUser.role === "ADMINISTRATIVE" ? <ManagerDashboard /> : <WorkerDashboard />)
   }
 
-  if (!user || !contextUser || !isAuthenticated ) {
-    return <LoginForm/>
+  if (!user || !contextUser || !isAuthenticated) {
+    return <LoginForm />
   }
-
 
 }

@@ -1,9 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client-js"
   output   = "../app/generated/prisma"
@@ -15,11 +9,12 @@ datasource db {
 }
 
 model User {
-  id      String  @id @default(cuid())
-  auth0Id String  @unique @map("auth0_id")
-  name    String
-  email   String  @unique
-  picture String?
+  id        String   @id @default(cuid())
+  auth0Id   String   @unique @map("auth0_id")
+  name      String
+  email     String   @unique
+  role      Role     @default(NURSE)
+  picture   String?
   shifts    Shift[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -27,6 +22,58 @@ model User {
   @@map("users")
 }
 
+enum Role {
+  DOCTOR
+  NURSE
+  PARAMEDIC
+  TECHNICIAN
+  SUPPORT_STAFF
+  PHARMACIST
+  THERAPIST
+  ADMINISTRATIVE
+  HCA
+}
+
+/*
+  WorkerType:
+  - A row for each staff type you want to manage location constraints for.
+  - Do NOT create a row for ADMINISTRATIVE if you want admins to have no location restriction.
+*/
+model WorkerType {
+  id        String     @id @default(cuid())
+  role      Role       @unique
+  label     String?
+  zone      WorkerZone?
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  @@map("worker_types")
+}
+
+/*
+  WorkerZone:
+  - Stores the perimeter (latitude, longitude, radius in meters) for the corresponding WorkerType.
+  - One-to-one relationship: one zone per worker type.
+*/
+model WorkerZone {
+  id           String     @id @default(cuid())
+  workerTypeId String     @unique
+  workerType   WorkerType @relation(fields: [workerTypeId], references: [id])
+  latitude     Float
+  longitude    Float
+  radius       Float      // in meters
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@map("worker_zones")
+}
+
+/*
+  Shift:
+  - History of clock-ins / clock-outs.
+  - clockOut may be null (active shift).
+  - Contains coordinates for both clock in and clock out (optional).
+*/
 model Shift {
   id           String    @id @default(cuid())
   clockIn      DateTime
@@ -41,4 +88,6 @@ model Shift {
   user         User      @relation(fields: [userId], references: [id])
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
+
+  @@map("shifts")
 }

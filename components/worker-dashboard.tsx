@@ -25,6 +25,11 @@ import {
     Row,
     Col,
 } from "antd";
+import dynamic from "next/dynamic";
+const MapSelector = dynamic(() => import("./map"), {
+    ssr: false,
+});
+
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -40,7 +45,7 @@ interface WorkerClockRecord {
 }
 
 export function WorkerDashboard() {
-    const { user, logout } = useAuth();
+    const { user } = useAuth();
     const { currentLocation, isWithinPerimeter, perimeter, requestLocation } =
         useLocation();
     const [isClockedIn, setIsClockedIn] = useState(false);
@@ -197,9 +202,11 @@ export function WorkerDashboard() {
                         <Text type="secondary">Welcome, {user?.name}</Text>
                     </div>
                 </Space>
-                <Button icon={<LogOut size={16} />} onClick={logout}>
-                    Logout
-                </Button>
+                <a href="/api/auth/logout">
+                    <Button icon={<LogOut size={16} />}>
+                        Logout
+                    </Button>
+                </a>
             </Row>
 
             {/* Status Cards */}
@@ -235,6 +242,9 @@ export function WorkerDashboard() {
                         <Calendar color="purple" />
                     </Card>
                 </Col>
+            </Row>
+            <Row>
+                <MapSelector />
             </Row>
 
             {/* Location Status */}
