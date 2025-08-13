@@ -28,7 +28,7 @@ It provides **real-time clock-in/clock-out tracking, statistics, and performance
 ## 🛠️ Tech Stack
 
 ### **Frontend**
-- React.js (with Vite or CRA)
+- Next.js (with Vite or CRA)
 - Ant Design (UI components)
 - Grommet (UI components)
 - Tailwind CSS (styling)
@@ -45,7 +45,7 @@ It provides **real-time clock-in/clock-out tracking, statistics, and performance
 
 ### 1️⃣ Clone the Repository
 ```bash
-git clone https://github.com/yourusername/healthcare-assessment.git
+git clone https://github.com/abhishekmaniy/healthcare-assesment.git
 cd healthcare-assessment
 ```
 
