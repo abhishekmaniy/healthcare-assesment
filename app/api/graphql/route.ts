@@ -472,34 +472,38 @@ const server = new ApolloServer({
     typeDefs,
     resolvers,
 });
+const apolloHandler = startServerAndCreateNextHandler<NextRequest>(server, {
+  context: async (req) => {
+    try {
+      const mockIncomingMessage = {
+        ...req,
+        headers: Object.fromEntries(req.headers.entries()),
+        url: req.url,
+        method: req.method,
+      } as any;
 
-const handler = startServerAndCreateNextHandler<NextRequest>(server, {
-    context: async (req) => {
-        try {
-            const mockIncomingMessage = {
-                ...req,
-                headers: Object.fromEntries(req.headers.entries()),
-                url: req.url,
-                method: req.method,
-            } as any;
+      const mockServerResponse = {
+        getHeader: () => undefined,
+        setHeader: () => {},
+        writeHead: () => {},
+        end: () => {},
+      } as any;
 
-            const mockServerResponse = {
-                getHeader: () => undefined,
-                setHeader: () => { },
-                writeHead: () => { },
-                end: () => { },
-            } as any;
+      const session = await getSession(mockIncomingMessage, mockServerResponse);
 
-            const session = await getSession(mockIncomingMessage, mockServerResponse);
-
-            // Only return session in context - don't do database operations here
-            return { session };
-
-        } catch (error) {
-            console.warn('Failed to get session:', error);
-            return { session: null };
-        }
-    },
+      return { session };
+    } catch (error) {
+      console.warn("Failed to get session:", error);
+      return { session: null };
+    }
+  },
 });
 
-export { handler as GET, handler as POST };
+// Correctly wrap for Next.js App Router route handlers
+export async function GET(request: NextRequest, context: { params: Record<string, string> }) {
+  return apolloHandler(request);
+}
+
+export async function POST(request: NextRequest, context: { params: Record<string, string> }) {
+  return apolloHandler(request);
+}
