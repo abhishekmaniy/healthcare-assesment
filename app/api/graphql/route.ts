@@ -1,12 +1,11 @@
-import "reflect-metadata"
+import { Role } from "@/app/generated/prisma";
+import { db } from "@/lib/db";
+import { Shift } from "@/types";
 import { ApolloServer } from "@apollo/server";
 import { startServerAndCreateNextHandler } from "@as-integrations/next";
-import { NextRequest } from "next/server";
 import { getSession } from "@auth0/nextjs-auth0";
-import { headers } from 'next/headers';
-import { db } from "@/lib/db";
-import { Role } from "@/app/generated/prisma";
-import { Shift } from "@/types";
+import { NextRequest } from "next/server";
+import "reflect-metadata";
 
 // Define GraphQL schema
 const typeDefs = `#graphql
@@ -469,9 +468,10 @@ const resolvers = {
 
 // Create Apollo Server instance
 const server = new ApolloServer({
-    typeDefs,
-    resolvers,
+  typeDefs,
+  resolvers,
 });
+
 const apolloHandler = startServerAndCreateNextHandler<NextRequest>(server, {
   context: async (req) => {
     try {
@@ -490,7 +490,6 @@ const apolloHandler = startServerAndCreateNextHandler<NextRequest>(server, {
       } as any;
 
       const session = await getSession(mockIncomingMessage, mockServerResponse);
-
       return { session };
     } catch (error) {
       console.warn("Failed to get session:", error);
@@ -499,11 +498,10 @@ const apolloHandler = startServerAndCreateNextHandler<NextRequest>(server, {
   },
 });
 
-// Correctly wrap for Next.js App Router route handlers
-export async function GET(request: NextRequest, context: { params: Record<string, string> }) {
+export async function GET(request: NextRequest) {
   return apolloHandler(request);
 }
 
-export async function POST(request: NextRequest, context: { params: Record<string, string> }) {
+export async function POST(request: NextRequest) {
   return apolloHandler(request);
 }
