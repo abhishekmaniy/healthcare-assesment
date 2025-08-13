@@ -1,143 +1,197 @@
 "use client";
 
 import { useAuth } from "@/contexts/auth-context";
-import { gql, useMutation } from "@apollo/client";
+import { gql, useLazyQuery, useMutation } from "@apollo/client";
 import { useUser } from "@auth0/nextjs-auth0/client";
-import { Button, Select, message } from "antd";
-import {
-    Box,
-    CardBody,
-    CardHeader,
-    Tab,
-    Tabs
-} from "grommet";
+import { Button, Select, message, Card, Typography, Tabs, Space } from "antd";
 import { Heart } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+const { Title, Text } = Typography;
+const { TabPane } = Tabs;
+
 const REGISTER_USER = gql`
-    mutation RegisterUser($input: RegisterUserInput!) {
+  mutation RegisterUser($input: RegisterUserInput!) {
     registerUser(input: $input) {
-        user {
+      user {
         id
         auth0Id
         name
         email
         picture
         role
-        }
-        isNewUser
-        message
+      }
+      isNewUser
+      message
     }
+  }
+`;
+
+const LOGIN_USER = gql`
+  query LoginUser($input: LoginUserInput!) {
+    loginUser(input: $input) {
+      user {
+        id
+        auth0Id
+        name
+        email
+        picture
+        role
+      }
     }
+  }
 `;
 
 const JOB_ROLES = [
-    { label: "Doctor", value: "DOCTOR" },
-    { label: "Nurse", value: "NURSE" },
-    { label: "Paramedic", value: "PARAMEDIC" },
-    { label: "Technician", value: "TECHNICIAN" },
-    { label: "Support Staff", value: "SUPPORT_STAFF" },
-    { label: "Pharmacist", value: "PHARMACIST" },
-    { label: "Therapist", value: "THERAPIST" },
-    { label: "Healthcare Assistant", value: "HCA" }
+  { label: "Doctor", value: "DOCTOR" },
+  { label: "Nurse", value: "NURSE" },
+  { label: "Paramedic", value: "PARAMEDIC" },
+  { label: "Technician", value: "TECHNICIAN" },
+  { label: "Support Staff", value: "SUPPORT_STAFF" },
+  { label: "Pharmacist", value: "PHARMACIST" },
+  { label: "Therapist", value: "THERAPIST" },
+  { label: "Healthcare Assistant", value: "HCA" }
 ];
 
 export function LoginForm() {
-    const { setUser, setIsAuthenticated } = useAuth();
-    const [isLoading, setIsLoading] = useState(false);
-    const [error, setError] = useState("");
-    const [jobRole, setJobRole] = useState<string>("");
-    const { user } = useUser();
-    const router = useRouter();
+  const { setUser, setIsAuthenticated } = useAuth();
+  const [isLoading, setIsLoading] = useState(false);
+  const [jobRole, setJobRole] = useState<string>("");
+  const { user, isLoading: isLoadingUser } = useUser();
+  const router = useRouter();
 
-    const [registerUser] = useMutation(REGISTER_USER);
+  const [registerUser] = useMutation(REGISTER_USER);
+  const [loginUser] = useLazyQuery(LOGIN_USER);
 
-    const handleLogin = async () => {
-        setIsLoading(true);
+  const handleRegister = async () => {
+    setIsLoading(true);
 
-        if (!user) {
-            window.location.href = "/api/auth/login";
-            return;
+    if (!user) {
+      window.location.href = "/api/auth/login";
+      return;
+    }
+
+    try {
+      const res = await registerUser({
+        variables: {
+          input: {
+            name: user.name || "Anonymous",
+            role: jobRole
+          }
         }
+      });
 
-        try {
-            console.log(jobRole)
-            const res = await registerUser({
-                variables: {
-                    input: {
-                        name: user.name || "Anonymous",
-                        role: jobRole
-                    }
-                }
-            });
+      setUser(res.data.registerUser.user);
+      setIsAuthenticated(true);
+      message.success("Successfully registered!");
+    } catch (err: any) {
+      console.error("Error registering user:", err);
+      message.error(err.message);
+    }
 
-            setUser(res.data.registerUser.user);
-            setIsAuthenticated(true);
+    setIsLoading(false);
+  };
 
-            message.success("Successfully registered!");
+  const handleLogin = async () => {
+    setIsLoading(true);
 
-        } catch (err: any) {
-            console.error("Error registering user:", err);
-            setError(err.message);
-            message.error(err.message);
+    if (!user) {
+      window.location.href = "/api/auth/login";
+      return;
+    }
+
+    try {
+      const res = await loginUser({
+        variables: {
+          input: { email: user.email }
         }
+      });
 
-        setIsLoading(false);
-    };
+      setUser(res.data.loginUser.user);
+      setIsAuthenticated(true);
+      message.success("Successfully logged in!");
+    } catch (err: any) {
+      console.error("Error logging in:", err);
+      message.error(err.message);
+    }
 
-    return (
-        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-100 to-indigo-200 p-6">
-            <div className="w-full max-w-md bg-white shadow-lg rounded-2xl overflow-hidden">
-                <CardHeader
-                    className="bg-blue-600 text-white py-6 flex flex-col items-center text-center"
-                    style={{ borderBottom: "none" }}
-                >
-                    <div className="p-3 bg-white rounded-full shadow-md mb-3">
-                        <Heart className="h-8 w-8 text-blue-600" />
-                    </div>
-                    <h2 className="text-2xl font-bold">Healthcare Clock-In</h2>
-                    <p className="text-blue-100 text-sm">
-                        Professional time tracking for healthcare workers
-                    </p>
-                </CardHeader>
+    setIsLoading(false);
+  };
 
-                <CardBody className="p-6">
-                    <Tabs>
-                        <Tab title="Login">
-                            <Box pad="small">
-                                <Button onClick={handleLogin} type="primary" block loading={isLoading}>
-                                    Log In
-                                </Button>
-                            </Box>
-                        </Tab>
+  const loadingState = isLoading || isLoadingUser;
 
-                        <Tab title="Register">
-                            <Box pad="small" gap="medium">
-                                <Select
-                                    placeholder="Select your job role"
-                                    options={JOB_ROLES}
-                                    onChange={(value) => setJobRole(value)}
-                                    style={{ width: "100%", marginBottom: "1rem" }}
-                                />
-                                <Button
-                                    onClick={handleLogin}
-                                    type="primary"
-                                    block
-                                    loading={isLoading}
-                                    disabled={!jobRole}
-                                >
-                                    Register
-                                </Button>
-                            </Box>
-                        </Tab>
-                    </Tabs>
-
-                    <div style={{ marginTop: "1rem", textAlign: "center" }}>
-                        <a href="/api/auth/logout">Logout</a>
-                    </div>
-                </CardBody>
+  return (
+    <div style={{ background: "#f5f5f5", minHeight: "100vh", padding: "40px 16px" }}>
+      <div style={{ maxWidth: 400, margin: "0 auto" }}>
+        <Card
+          style={{
+            borderRadius: 16,
+            boxShadow: "0 2px 8px rgba(0,0,0,0.05)"
+          }}
+          bodyStyle={{ padding: 24 }}
+        >
+          <Space
+            direction="vertical"
+            align="center"
+            style={{ width: "100%", marginBottom: 24 }}
+          >
+            <div
+              style={{
+                padding: 12,
+                background: "#e6f4ff",
+                borderRadius: "50%",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center"
+              }}
+            >
+              <Heart size={28} color="#1677ff" />
             </div>
-        </div>
-    );
+            <Title level={3} style={{ marginBottom: 0 }}>
+              Healthcare Clock-In
+            </Title>
+            <Text type="secondary" style={{ textAlign: "center" }}>
+              Professional time tracking for healthcare workers
+            </Text>
+          </Space>
+
+          <Tabs defaultActiveKey="login" centered>
+            <TabPane tab="Login" key="login">
+              <Button
+                type="primary"
+                block
+                size="large"
+                onClick={handleLogin}
+                loading={loadingState}
+              >
+                Log In
+              </Button>
+            </TabPane>
+
+            <TabPane tab="Register" key="register">
+              <Select
+                placeholder="Select your job role"
+                options={JOB_ROLES}
+                onChange={(value) => setJobRole(value)}
+                style={{ width: "100%", marginBottom: 16 }}
+              />
+              <Button
+                type="primary"
+                block
+                size="large"
+                onClick={handleRegister}
+                loading={loadingState}
+                disabled={!jobRole}
+              >
+                Register
+              </Button>
+            </TabPane>
+          </Tabs>
+
+          
+        </Card>
+      </div>
+    </div>
+  );
 }

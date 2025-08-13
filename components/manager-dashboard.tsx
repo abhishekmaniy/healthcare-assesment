@@ -1,16 +1,28 @@
-"use client"
+"use client";
 
-import { useMemo, useState } from 'react'
-import { useAuth } from '@/contexts/auth-context'
-import { useLocation } from '@/contexts/location-context'
-import { Users, Clock, MapPin, TrendingUp, Calendar, Settings, LogOut } from 'lucide-react'
-import { Button, Card, Input, Table, Tabs, Tag, Form, Row, Col, Space, Typography, Modal, Spin } from 'antd'
-import type { TableProps } from 'antd'
-import MapSelector from './map'
-import { gql, useMutation, useQuery } from '@apollo/client'
+import { useMemo, useState } from "react";
+import { useAuth } from "@/contexts/auth-context";
+import { Users, Clock, MapPin, TrendingUp, Calendar, LogOut } from "lucide-react";
+import { Button, Card, Input, Table, Tabs, Tag, Typography, Modal, Spin, Row, Col } from "antd";
+import type { TableProps } from "antd";
+import MapSelector from "./map";
+import { gql, useMutation, useQuery } from "@apollo/client";
+import { Bar, Line } from "react-chartjs-2";
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  PointElement,
+  LineElement,
+  Tooltip,
+  Legend,
+  Title as ChartTitle,
+} from "chart.js";
 
-const { Title, Text } = Typography
+ChartJS.register(CategoryScale, LinearScale, BarElement, PointElement, LineElement, Tooltip, Legend, ChartTitle);
 
+const { Title, Text } = Typography;
 
 interface StaffLocation {
   id: string;
@@ -18,48 +30,27 @@ interface StaffLocation {
   role: string;
   lat: number;
   lng: number;
-  radius: number; // in meters
+  radius: number; // meters
 }
 
-const mockStaffLocations: StaffLocation[] = [
-  { id: "1", name: "Nurse Mike Chen", role: "NURSE", lat: 40.7128, lng: -74.0060, radius: 2000 },
-  { id: "2", name: "Dr. Emily Rodriguez", role: "DOCTOR", lat: 40.7150, lng: -74.0020, radius: 1500 },
-];
-
-
-interface ClockRecord {
-  id: string
-  workerId: string
-  workerName: string
-  clockIn: Date
-  clockOut?: Date
-  clockInLocation: { lat: number; lng: number }
-  clockOutLocation?: { lat: number; lng: number }
-  clockInNote?: string
-  clockOutNote?: string
+interface ShiftRecord {
+  id: string;
+  clockIn: string;    // ISO or ms string
+  clockOut?: string;  // ISO or ms string | null
+  clockInLat: number;
+  clockInLng: number;
+  clockOutLat?: number | null;
+  clockOutLng?: number | null;
+  clockInNote?: string | null;
+  clockOutNote?: string | null;
+  user: {
+    id: string;
+    name: string;
+    role: string;
+    email: string;
+    picture?: string | null;
+  };
 }
-
-const mockClockRecords: ClockRecord[] = [
-  {
-    id: '1',
-    workerId: '2',
-    workerName: 'Nurse Mike Chen',
-    clockIn: new Date(Date.now() - 4 * 60 * 60 * 1000),
-    clockInLocation: { lat: 40.7128, lng: -74.0060 },
-    clockInNote: 'Starting ICU shift'
-  },
-  {
-    id: '2',
-    workerId: '3',
-    workerName: 'Dr. Emily Rodriguez',
-    clockIn: new Date(Date.now() - 2 * 60 * 60 * 1000),
-    clockOut: new Date(Date.now() - 30 * 60 * 1000),
-    clockInLocation: { lat: 40.7128, lng: -74.0060 },
-    clockOutLocation: { lat: 40.7128, lng: -74.0060 },
-    clockInNote: 'Emergency shift',
-    clockOutNote: 'Shift completed'
-  }
-]
 
 const GET_STAFF_LOCATIONS = gql`
   query GetStaffLocations {
@@ -77,34 +68,84 @@ const GET_STAFF_LOCATIONS = gql`
 `;
 
 const UPDATE_STAFF_LOCATION = gql`
-mutation UpdateStaffLocation($id: ID!, $lat: Float!, $lng: Float!, $radius: Float!) {
-  updateStaffLocation(id: $id, lat: $lat, lng: $lng, radius: $radius) {
-    role
-    label
-    workerZone {
-      id
-      lat
-      lng
-      radius
+  mutation UpdateStaffLocation($id: ID!, $lat: Float!, $lng: Float!, $radius: Float!) {
+    updateStaffLocation(id: $id, lat: $lat, lng: $lng, radius: $radius) {
+      role
+      label
+      workerZone {
+        id
+        lat
+        lng
+        radius
+      }
     }
   }
-}
 `;
 
+// Uses your ShiftForAdmin -> allShiftsForAdmin response with embedded user
+const GET_ALL_QUERY = gql`
+  query {
+    allShiftsForAdmin {
+      id
+      clockIn
+      clockOut
+      clockInLat
+      clockInLng
+      clockOutLat
+      clockOutLng
+      clockInNote
+      clockOutNote
+      user {
+        id
+        name
+        role
+        email
+        picture
+      }
+    }
+  }
+`;
+
+function toDate(v?: string | null) {
+  return v ? new Date(v) : null;
+}
+
+function hoursBetween(start: Date, end: Date) {
+  return (end.getTime() - start.getTime()) / (1000 * 60 * 60);
+}
+
+function dayKey(d: Date) {
+  // YYYY-MM-DD in local time
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${dd}`;
+}
+
+function dayLabel(d: Date) {
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function lastNDates(n: number): Date[] {
+  const arr: Date[] = [];
+  const today = new Date();
+  for (let i = n - 1; i >= 0; i--) {
+    const d = new Date(today);
+    d.setDate(today.getDate() - i);
+    d.setHours(0, 0, 0, 0);
+    arr.push(d);
+  }
+  return arr;
+}
+
 export function ManagerDashboard() {
-  const { user } = useAuth()
-  const { perimeter, setPerimeter } = useLocation()
-  const [clockRecords] = useState<ClockRecord[]>(mockClockRecords)
-  const [newPerimeter, setNewPerimeter] = useState({
-    lat: perimeter.lat.toString(),
-    lng: perimeter.lng.toString(),
-    radius: (perimeter.radius / 1000).toString()
-  })
+  const { user } = useAuth();
+
   const [selectedStaff, setSelectedStaff] = useState<StaffLocation | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [originalStaffData, setOriginalStaffData] = useState<StaffLocation | null>(null);
 
-
+  // Queries
   const {
     data: locationData,
     loading: locationsLoading,
@@ -112,6 +153,7 @@ export function ManagerDashboard() {
     refetch: refetchLocations,
   } = useQuery(GET_STAFF_LOCATIONS);
 
+  const { data, loading, error } = useQuery(GET_ALL_QUERY);
 
   const [updateStaffLocation, { loading: updateLoading }] = useMutation(UPDATE_STAFF_LOCATION, {
     onCompleted: () => {
@@ -120,13 +162,226 @@ export function ManagerDashboard() {
     },
   });
 
-  const activeWorkers = clockRecords.filter(r => !r.clockOut)
+  // ---- Transform shifts from API (real data) ----
+  const clockRecords: ShiftRecord[] = useMemo(() => {
+    return data?.allShiftsForAdmin ?? [];
+  }, [data]);
 
-  const todayRecords = clockRecords.filter(r => {
-    const today = new Date()
-    return r.clockIn.toDateString() === today.toDateString()
-  })
+  // ---- Cards (real data) ----
+  const activeWorkers = useMemo(() => clockRecords.filter((r) => !r.clockOut), [clockRecords]);
 
+  const todayRecords = useMemo(() => {
+    const todayStr = new Date().toDateString();
+    return clockRecords.filter((r) => new Date(r.clockIn).toDateString() === todayStr);
+  }, [clockRecords]);
+
+  const avgHoursToday = useMemo(() => {
+    if (todayRecords.length === 0) return 0;
+    const total = todayRecords.reduce((acc, r) => {
+      const start = new Date(r.clockIn);
+      const end = r.clockOut ? new Date(r.clockOut) : new Date();
+      return acc + hoursBetween(start, end);
+    }, 0);
+    return total / todayRecords.length;
+  }, [todayRecords]);
+
+  const totalHours = useMemo(() => {
+    // Completed shifts total hours (all time)
+    return clockRecords.reduce((acc, r) => {
+      if (!r.clockOut) return acc;
+      const start = new Date(r.clockIn);
+      const end = new Date(r.clockOut);
+      return acc + hoursBetween(start, end);
+    }, 0);
+  }, [clockRecords]);
+
+  // ---- Tables (real data) ----
+  const formatDuration = (startISO: string, endISO?: string) => {
+    const start = new Date(startISO);
+    const end = endISO ? new Date(endISO) : new Date();
+    const dur = end.getTime() - start.getTime();
+    const h = Math.floor(dur / (1000 * 60 * 60));
+    const m = Math.floor((dur % (1000 * 60 * 60)) / (1000 * 60));
+    return `${h}h ${m}m`;
+  };
+
+  const activeColumns: TableProps<ShiftRecord>["columns"] = [
+    { title: "Worker", dataIndex: ["user", "name"], key: "workerName" },
+    { title: "Clock In Time", key: "clockIn", render: (_, r) => new Date(r.clockIn).toLocaleTimeString() },
+    { title: "Duration", key: "duration", render: (_, r) => formatDuration(r.clockIn) },
+    {
+      title: "Location",
+      key: "location",
+      render: (_, r) => (
+        <span>
+          <MapPin className="inline-block mr-1" size={14} />
+          {r.clockInLat.toFixed(4)}, {r.clockInLng.toFixed(4)}
+        </span>
+      ),
+    },
+    { title: "Note", key: "note", render: (_, r) => r.clockInNote || "-" },
+    { title: "Status", key: "status", render: () => <Tag color="green">Active</Tag> },
+  ];
+
+  const historyColumns: TableProps<ShiftRecord>["columns"] = [
+    { title: "Worker", dataIndex: ["user", "name"], key: "workerName" },
+    {
+      title: "Clock In",
+      key: "clockIn",
+      render: (_, r) => (
+        <>
+          <div>{new Date(r.clockIn).toLocaleString()}</div>
+          <Text type="secondary">
+            {r.clockInLat.toFixed(4)}, {r.clockInLng.toFixed(4)}
+          </Text>
+        </>
+      ),
+    },
+    {
+      title: "Clock Out",
+      key: "clockOut",
+      render: (_, r) =>
+        r.clockOut ? (
+          <>
+            <div>{new Date(r.clockOut).toLocaleString()}</div>
+            <Text type="secondary">
+              {r.clockOutLat?.toFixed(4)}, {r.clockOutLng?.toFixed(4)}
+            </Text>
+          </>
+        ) : (
+          <Tag color="blue">Still Active</Tag>
+        ),
+    },
+    { title: "Duration", key: "duration", render: (_, r) => formatDuration(r.clockIn, r.clockOut) },
+    {
+      title: "Notes",
+      key: "notes",
+      render: (_, r) => (
+        <>
+          {r.clockInNote && (
+            <div>
+              <Text strong>In: </Text>
+              {r.clockInNote}
+            </div>
+          )}
+          {r.clockOutNote && (
+            <div>
+              <Text strong>Out: </Text>
+              {r.clockOutNote}
+            </div>
+          )}
+        </>
+      ),
+    },
+  ];
+
+  // ---- Charts (all from real data) ----
+  // Use last 7 days window
+  const last7 = useMemo(() => lastNDates(7), []);
+  const last7Keys = useMemo(() => last7.map(dayKey), [last7]);
+  const last7Labels = useMemo(() => last7.map(dayLabel), [last7]);
+
+  // Build per-day (YYYY-MM-DD) -> Map<userId, totalHoursThatDay>
+  const perDayUserHours = useMemo(() => {
+    const map: Record<string, Record<string, number>> = {};
+    last7Keys.forEach((k) => (map[k] = {}));
+
+    clockRecords.forEach((r) => {
+      const start = toDate(r.clockIn);
+      if (!start) return;
+      const end = toDate(r.clockOut) ?? new Date();
+      const k = dayKey(start);
+      if (!last7Keys.includes(k)) return; // count only last 7 days by clock-in date
+
+      const hrs = Math.max(0, hoursBetween(start, end));
+      const uid = r.user.id;
+      map[k][uid] = (map[k][uid] ?? 0) + hrs;
+    });
+
+    return map;
+  }, [clockRecords, last7Keys]);
+
+  // i) Avg hours people are spending clocked in each day
+  const avgHoursPerDayDataset = useMemo(() => {
+    return last7Keys.map((k) => {
+      const userHours = Object.values(perDayUserHours[k] || {});
+      if (userHours.length === 0) return 0;
+      const sum = userHours.reduce((a, b) => a + b, 0);
+      return sum / userHours.length;
+    });
+  }, [perDayUserHours, last7Keys]);
+
+  // ii) Number of people clocking in each day (unique users)
+  const uniqueClockersPerDayDataset = useMemo(() => {
+    return last7Keys.map((k) => Object.keys(perDayUserHours[k] || {}).length);
+  }, [perDayUserHours, last7Keys]);
+
+  // iii) Total Hours clocked in per staff over the last 1 week
+  const totalHoursPerStaff = useMemo(() => {
+    const totals: Record<string, { name: string; hours: number }> = {};
+    clockRecords.forEach((r) => {
+      const start = toDate(r.clockIn);
+      if (!start) return;
+      const k = dayKey(start);
+      if (!last7Keys.includes(k)) return;
+
+      const end = toDate(r.clockOut) ?? new Date();
+      const hrs = Math.max(0, hoursBetween(start, end));
+
+      const uid = r.user.id;
+      const name = r.user.name || r.user.email || uid;
+      if (!totals[uid]) totals[uid] = { name, hours: 0 };
+      totals[uid].hours += hrs;
+    });
+
+    // Sort desc and take top 10 to keep chart readable
+    const sorted = Object.values(totals).sort((a, b) => b.hours - a.hours).slice(0, 10);
+    return sorted;
+  }, [clockRecords, last7Keys]);
+
+  const avgHoursChartData = useMemo(
+    () => ({
+      labels: last7Labels,
+      datasets: [
+        {
+          label: "Avg Hours / Day",
+          data: avgHoursPerDayDataset,
+          backgroundColor: "#3b82f6",
+        },
+      ],
+    }),
+    [last7Labels, avgHoursPerDayDataset]
+  );
+
+  const clockInsChartData = useMemo(
+    () => ({
+      labels: last7Labels,
+      datasets: [
+        {
+          label: "People Clocked In",
+          data: uniqueClockersPerDayDataset,
+          backgroundColor: "#16a34a",
+        },
+      ],
+    }),
+    [last7Labels, uniqueClockersPerDayDataset]
+  );
+
+  const totalHoursChartData = useMemo(
+    () => ({
+      labels: totalHoursPerStaff.map((s) => s.name),
+      datasets: [
+        {
+          label: "Total Hours (Last 7 Days)",
+          data: totalHoursPerStaff.map((s) => Number(s.hours.toFixed(2))),
+          backgroundColor: "#f59e0b",
+        },
+      ],
+    }),
+    [totalHoursPerStaff]
+  );
+
+  // ---- Location settings ----
   const isChanged = useMemo(() => {
     if (!selectedStaff || !originalStaffData) return false;
     return (
@@ -136,125 +391,10 @@ export function ManagerDashboard() {
     );
   }, [selectedStaff, originalStaffData]);
 
-  const avgHoursToday =
-    todayRecords.length > 0
-      ? todayRecords.reduce((acc, r) => {
-        const hours = r.clockOut
-          ? (r.clockOut.getTime() - r.clockIn.getTime()) / (1000 * 60 * 60)
-          : (Date.now() - r.clockIn.getTime()) / (1000 * 60 * 60)
-        return acc + hours
-      }, 0) / todayRecords.length
-      : 0
-
-
-
-  const handleUpdatePerimeter = () => {
-    setPerimeter({
-      lat: parseFloat(newPerimeter.lat),
-      lng: parseFloat(newPerimeter.lng),
-      radius: parseFloat(newPerimeter.radius) * 1000
-    })
-  }
-
-  const formatDuration = (start: Date, end?: Date) => {
-    const endTime = end || new Date()
-    const duration = endTime.getTime() - start.getTime()
-    const hours = Math.floor(duration / (1000 * 60 * 60))
-    const minutes = Math.floor((duration % (1000 * 60 * 60)) / (1000 * 60))
-    return `${hours}h ${minutes}m`
-  }
-
-  const activeColumns: TableProps<ClockRecord>['columns'] = [
-    { title: 'Worker', dataIndex: 'workerName', key: 'workerName' },
-    { title: 'Clock In Time', key: 'clockIn', render: (_, r) => r.clockIn.toLocaleTimeString() },
-    { title: 'Duration', key: 'duration', render: (_, r) => formatDuration(r.clockIn) },
-    {
-      title: 'Location',
-      key: 'location',
-      render: (_, r) => (
-        <span>
-          <MapPin className="inline-block mr-1" size={14} />
-          {r.clockInLocation.lat.toFixed(4)}, {r.clockInLocation.lng.toFixed(4)}
-        </span>
-      )
-    },
-    { title: 'Note', key: 'note', render: (_, r) => r.clockInNote || '-' },
-    {
-      title: 'Status',
-      key: 'status',
-      render: () => <Tag color="green">Active</Tag>
-    }
-  ]
-
-  const historyColumns: TableProps<ClockRecord>['columns'] = [
-    { title: 'Worker', dataIndex: 'workerName', key: 'workerName' },
-    {
-      title: 'Clock In',
-      key: 'clockIn',
-      render: (_, r) => (
-        <>
-          <div>{r.clockIn.toLocaleString()}</div>
-          <Text type="secondary">
-            {r.clockInLocation.lat.toFixed(4)}, {r.clockInLocation.lng.toFixed(4)}
-          </Text>
-        </>
-      )
-    },
-    {
-      title: 'Clock Out',
-      key: 'clockOut',
-      render: (_, r) =>
-        r.clockOut ? (
-          <>
-            <div>{r.clockOut.toLocaleString()}</div>
-            <Text type="secondary">
-              {r.clockOutLocation?.lat.toFixed(4)}, {r.clockOutLocation?.lng.toFixed(4)}
-            </Text>
-          </>
-        ) : (
-          <Tag color="blue">Still Active</Tag>
-        )
-    },
-    {
-      title: 'Duration',
-      key: 'duration',
-      render: (_, r) =>
-        r.clockOut ? formatDuration(r.clockIn, r.clockOut) : formatDuration(r.clockIn)
-    },
-    {
-      title: 'Notes',
-      key: 'notes',
-      render: (_, r) => (
-        <>
-          {r.clockInNote && (
-            <div>
-              <Text strong>In: </Text>{r.clockInNote}
-            </div>
-          )}
-          {r.clockOutNote && (
-            <div>
-              <Text strong>Out: </Text>{r.clockOutNote}
-            </div>
-          )}
-        </>
-      )
-    }
-  ]
-
-
   const handleRowClick = (record: StaffLocation) => {
     setSelectedStaff({ ...record });
     setOriginalStaffData({ ...record });
     setIsModalOpen(true);
-  };
-
-
-  const handleMapClick = (lat: number, lng: number) => {
-    setSelectedStaff(prev => prev ? { ...prev, lat, lng } : null);
-  };
-
-  const handleUpdateRadius = (radiusKm: string) => {
-    setSelectedStaff(prev => prev ? { ...prev, radius: parseFloat(radiusKm) * 1000 } : null);
   };
 
   const handleSave = () => {
@@ -264,7 +404,7 @@ export function ManagerDashboard() {
         id: selectedStaff.id,
         lat: selectedStaff.lat,
         lng: selectedStaff.lng,
-        radius: selectedStaff.radius,
+        radius: selectedStaff.radius, // meters
       },
     });
   };
@@ -272,230 +412,238 @@ export function ManagerDashboard() {
   const locationColumns = [
     { title: "Name", dataIndex: "name", key: "name" },
     { title: "Role", dataIndex: "role", key: "role" },
-    {
-      title: "Latitude",
-      dataIndex: "lat",
-      key: "lat",
-      render: (lat: number) => lat.toFixed(4),
-    },
-    {
-      title: "Longitude",
-      dataIndex: "lng",
-      key: "lng",
-      render: (lng: number) => lng.toFixed(4),
-    },
-    {
-      title: "Radius (km)",
-      dataIndex: "radius",
-      key: "radius",
-      render: (radius: number) => (radius / 1000).toFixed(1),
-    },
+    { title: "Latitude", dataIndex: "lat", key: "lat", render: (lat: number) => lat.toFixed(4) },
+    { title: "Longitude", dataIndex: "lng", key: "lng", render: (lng: number) => lng.toFixed(4) },
+    { title: "Radius (m)", dataIndex: "radius", key: "radius", render: (radius: number) => radius.toFixed(1) },
   ];
 
-
-
   return (
-    <div style={{ padding: '16px', background: '#f5f5f5', minHeight: '100vh' }}>
-      {/* Header */}
-      <Card style={{ marginBottom: 16 }}>
-        <Space style={{ width: '100%', justifyContent: 'space-between' }}>
-          <Space>
-            <Users color="#1677ff" />
+    <div className="bg-gray-50 min-h-screen">
+      <div className="max-w-[1200px] mx-auto p-6">
+        {/* Header */}
+        <div className="flex justify-between items-center mb-6">
+          <div className="flex items-center gap-3">
+            <Users color="#2563eb" size={32} />
             <div>
-              <Title level={4} style={{ margin: 0 }}>Manager Dashboard</Title>
-              <Text type="secondary">Welcome back, {user?.name}</Text>
+              <h2 className="m-0 font-semibold text-gray-500">Manager Dashboard</h2>
+              <p className="m-0 text-gray-500">Welcome back, {user?.name}</p>
             </div>
-          </Space>
+          </div>
           <a href="/api/auth/logout">
-            <Button type="link" icon={<LogOut size={16} />} >
+            <Button type="primary" icon={<LogOut size={16} />} danger>
               Logout
             </Button>
           </a>
-        </Space>
-      </Card>
+        </div>
 
-      {/* Stats */}
-      <Row gutter={16} style={{ marginBottom: 16 }}>
-        <Col xs={24} md={6}>
-          <Card>
-            <Text>Active Workers</Text>
-            <Title level={3}>{activeWorkers.length}</Title>
-            <Users color="#1677ff" />
-          </Card>
-        </Col>
-        <Col xs={24} md={6}>
-          <Card>
-            <Text>Today's Check-ins</Text>
-            <Title level={3}>{todayRecords.length}</Title>
-            <Calendar color="#52c41a" />
-          </Card>
-        </Col>
-        <Col xs={24} md={6}>
-          <Card>
-            <Text>Avg Hours Today</Text>
-            <Title level={3}>{avgHoursToday.toFixed(1)}h</Title>
-            <Clock color="#fa8c16" />
-          </Card>
-        </Col>
-        <Col xs={24} md={6}>
-          <Card>
-            <Text>Total Hours</Text>
-            <Title level={3}>
-              {clockRecords.reduce((acc, r) => {
-                const h = r.clockOut
-                  ? (r.clockOut.getTime() - r.clockIn.getTime()) / (1000 * 60 * 60)
-                  : 0
-                return acc + h
-              }, 0).toFixed(1)}h
-            </Title>
-            <TrendingUp color="#722ed1" />
-          </Card>
-        </Col>
-      </Row>
+        {/* Stats */}
+        <Row gutter={16} className="mb-6">
+          <Col xs={24} md={6}>
+            <Card className="text-center rounded-xl">
+              <p className="text-gray-500 text-sm">Active Workers</p>
+              <h2 className="text-2xl font-semibold">{activeWorkers.length}</h2>
+              <Users color="#2563eb" />
+            </Card>
+          </Col>
 
-      {/* Tabs */}
-      <Tabs
-        defaultActiveKey="1"
-        items={[
-          {
-            key: '1',
-            label: 'Active Workers',
-            children: (
-              <Card>
-                <Title level={5}>Currently Clocked In</Title>
-                <Text type="secondary">Workers who are currently on shift</Text>
-                <Table
-                  columns={activeColumns}
-                  dataSource={activeWorkers}
-                  rowKey="id"
-                  style={{ marginTop: 16 }}
-                  pagination={false}
-                />
-              </Card>
-            )
-          },
-          {
-            key: '2',
-            label: 'Clock History',
-            children: (
-              <Card>
-                <Title level={5}>Clock In/Out History</Title>
-                <Table
-                  columns={historyColumns}
-                  dataSource={clockRecords}
-                  rowKey="id"
-                  style={{ marginTop: 16 }}
-                  pagination={false}
-                />
-              </Card>
-            )
-          },
-          {
-            key: "3",
-            label: "Location Settings",
-            children: (
-              <Card>
-                <Title level={5}>Staff Location Settings</Title>
-                <Text type="secondary">
-                  Set allowed perimeter for each staff member
-                </Text>
+        <Col xs={24} md={6}>
+            <Card className="text-center rounded-xl">
+              <p className="text-gray-500 text-sm">Today's Check-ins</p>
+              <h2 className="text-2xl font-semibold">{todayRecords.length}</h2>
+              <Calendar color="#16a34a" />
+            </Card>
+          </Col>
 
-                {locationsLoading ? (
-                  <div style={{ textAlign: "center", padding: 20 }}>
-                    <Spin size="large" />
-                  </div>
-                ) : locationsError ? (
-                  <Text type="danger">Failed to load staff locations</Text>
-                ) : (
+          <Col xs={24} md={6}>
+            <Card className="text-center rounded-xl">
+              <p className="text-gray-500 text-sm">Avg Hours Today</p>
+              <h2 className="text-2xl font-semibold">{avgHoursToday.toFixed(1)}h</h2>
+              <Clock color="#f59e0b" />
+            </Card>
+          </Col>
+
+          <Col xs={24} md={6}>
+            <Card className="text-center rounded-xl">
+              <p className="text-gray-500 text-sm">Total Hours</p>
+              <h2 className="text-2xl font-semibold">{totalHours.toFixed(1)}h</h2>
+              <TrendingUp color="#7c3aed" />
+            </Card>
+          </Col>
+        </Row>
+
+        {/* Tabs */}
+        <Card className="rounded-xl">
+          <Tabs
+            defaultActiveKey="1"
+            items={[
+              {
+                key: "1",
+                label: "Active Workers",
+                children: (
                   <Table
-                    columns={locationColumns}
-                    dataSource={locationData?.staffLocations?.map((loc: any) => ({
-                      id: loc.workerZone?.id || loc.role,
-                      name: loc.label || loc.role,
-                      role: loc.role,
-                      lat: loc.workerZone?.lat || 0,
-                      lng: loc.workerZone?.lng || 0,
-                      radius: loc.workerZone?.radius || 0,
-                    })) || []}
+                    columns={activeColumns}
+                    dataSource={activeWorkers}
                     rowKey="id"
-                    onRow={(record: StaffLocation) => ({
-                      onClick: () => handleRowClick(record),
-                    })}
-                    style={{ marginTop: 16 }}
+                    pagination={false}
+                    loading={loading}
                   />
-                )}
+                ),
+              },
+              {
+                key: "2",
+                label: "Clock History",
+                children: (
+                  <Table
+                    columns={historyColumns}
+                    dataSource={clockRecords}
+                    rowKey="id"
+                    pagination={false}
+                    loading={loading}
+                  />
+                ),
+              },
+              {
+                key: "3",
+                label: "Hours Per Staff",
+                children: (
+                  <Card className="p-4">
+                    <Title level={4}>Hours Per Staff</Title>
 
-                {/* Modal */}
-                <Modal
-                  title={`Edit Location for ${selectedStaff?.name}`}
-                  open={isModalOpen}
-                  onCancel={() => setIsModalOpen(false)}
-                  footer={null}
-                  width={800}
-                >
-                  {selectedStaff && (
-                    <div style={{ display: "flex", flexDirection: "column", height: "500px" }}>
-                      <MapSelector
-                        initialLat={selectedStaff.lat}
-                        initialLng={selectedStaff.lng}
-                        radius={selectedStaff.radius}
-                        onLocationChange={(lat, lng) => {
-                          setSelectedStaff((prev) => (prev ? { ...prev, lat, lng } : null));
+                    {/* Avg hours per day (last 7 days) */}
+                    <div className="my-6" style={{ height: 220 }}>
+                      <Bar
+                        data={avgHoursChartData}
+                        options={{
+                          responsive: true,
+                          maintainAspectRatio: false,
+                          plugins: { legend: { position: "top" } },
                         }}
                       />
-
-                      <div style={{ display: "flex", alignItems: "center", marginTop: 16, gap: "8px" }}>
-                        <Input
-                          style={{ width: "150px" }}
-                          value={selectedStaff.lat.toString()}
-                          onChange={(e) =>
-                            setSelectedStaff((prev) =>
-                              prev ? { ...prev, lat: parseFloat(e.target.value) || 0 } : null
-                            )
-                          }
-                          placeholder="Latitude"
-                        />
-
-                        <Input
-                          style={{ width: "150px" }}
-                          value={selectedStaff.lng.toString()}
-                          onChange={(e) =>
-                            setSelectedStaff((prev) =>
-                              prev ? { ...prev, lng: parseFloat(e.target.value) || 0 } : null
-                            )
-                          }
-                          placeholder="Longitude"
-                        />
-
-                        <Input
-                          style={{ width: "150px" }}
-                          value={(selectedStaff.radius / 1000).toString()}
-                          onChange={(e) =>
-                            setSelectedStaff((prev) =>
-                              prev ? { ...prev, radius: (parseFloat(e.target.value) || 0) * 1000 } : null
-                            )
-                          }
-                          placeholder="Radius"
-                          suffix="km"
-                        />
-
-                        <Button
-                          type="primary"
-                          onClick={handleSave}
-                          disabled={!isChanged || updateLoading}
-                          loading={updateLoading}
-                        >
-                          Update
-                        </Button>
-                      </div>
                     </div>
-                  )}
-                </Modal>
-              </Card>
-            ),
-          },
-        ]}
-      />
+
+                    {/* People clocking in each day (last 7 days) */}
+                    <div className="my-6" style={{ height: 220 }}>
+                      <Line
+                        data={clockInsChartData}
+                        options={{
+                          responsive: true,
+                          maintainAspectRatio: false,
+                          plugins: { legend: { position: "top" } },
+                        }}
+                      />
+                    </div>
+
+                    {/* Total hours per staff (last 7 days, top 10) */}
+                    <div className="my-6" style={{ height: 220 }}>
+                      <Bar
+                        data={totalHoursChartData}
+                        options={{
+                          responsive: true,
+                          maintainAspectRatio: false,
+                          plugins: { legend: { position: "top" } },
+                        }}
+                      />
+                    </div>
+                  </Card>
+                ),
+              },
+              {
+                key: "4",
+                label: "Location Settings",
+                children: (
+                  <Card>
+                    <Title level={5}>Staff Location Settings</Title>
+                    {locationsLoading ? (
+                      <div className="text-center py-5">
+                        <Spin size="large" />
+                      </div>
+                    ) : locationsError ? (
+                      <Text type="danger">Failed to load staff locations</Text>
+                    ) : (
+                      <Table
+                        columns={locationColumns}
+                        dataSource={
+                          (locationData?.staffLocations || []).map((loc: any) => ({
+                            id: loc.workerZone?.id || loc.role,
+                            name: loc.label || loc.role,
+                            role: loc.role,
+                            lat: loc.workerZone?.lat || 0,
+                            lng: loc.workerZone?.lng || 0,
+                            radius: loc.workerZone?.radius || 0, // meters
+                          })) || []
+                        }
+                        rowKey="id"
+                        onRow={(record: StaffLocation) => ({
+                          onClick: () => handleRowClick(record),
+                        })}
+                        className="mt-4"
+                      />
+                    )}
+
+                    <Modal
+                      title={`Edit Location for ${selectedStaff?.name}`}
+                      open={isModalOpen}
+                      onCancel={() => setIsModalOpen(false)}
+                      footer={null}
+                      width={800}
+                    >
+                      {selectedStaff && (
+                        <div className="flex flex-col h-[500px]">
+                          <MapSelector
+                            initialLat={selectedStaff.lat}
+                            initialLng={selectedStaff.lng}
+                            radius={selectedStaff.radius} // meters
+                            onLocationChange={(lat, lng) =>
+                              setSelectedStaff((prev) => (prev ? { ...prev, lat, lng } : null))
+                            }
+                          />
+                          <div className="flex mt-4 gap-2 items-center">
+                            <Input
+                              value={selectedStaff.lat}
+                              onChange={(e) =>
+                                setSelectedStaff((prev) =>
+                                  prev ? { ...prev, lat: parseFloat(e.target.value) || 0 } : null
+                                )
+                              }
+                              placeholder="Latitude"
+                            />
+                            <Input
+                              value={selectedStaff.lng}
+                              onChange={(e) =>
+                                setSelectedStaff((prev) =>
+                                  prev ? { ...prev, lng: parseFloat(e.target.value) || 0 } : null
+                                )
+                              }
+                              placeholder="Longitude"
+                            />
+                            <Input
+                              value={selectedStaff.radius}
+                              onChange={(e) =>
+                                setSelectedStaff((prev) =>
+                                  prev ? { ...prev, radius: parseFloat(e.target.value) || 0 } : null
+                                )
+                              }
+                              placeholder="Radius (m)"
+                            />
+                            <Button
+                              type="primary"
+                              onClick={handleSave}
+                              disabled={!isChanged || updateLoading}
+                              loading={updateLoading}
+                            >
+                              Update
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </Modal>
+                  </Card>
+                ),
+              },
+            ]}
+          />
+        </Card>
+      </div>
     </div>
-  )
+  );
 }

@@ -104,14 +104,7 @@ export default function MapSelector({
           Search
         </Button>
 
-        <span>Radius (km):</span>
-        <InputNumber
-          min={0.1}
-          max={50}
-          step={0.1}
-          value={radiusKm}
-          onChange={(value) => setRadiusKm(value || 1)}
-        />
+        
       </div>
 
       <GoogleMap
@@ -125,7 +118,7 @@ export default function MapSelector({
             <Marker position={selectedPosition} />
             <Circle
               center={selectedPosition}
-              radius={radiusKm! / 1000} 
+              radius={radiusKm!} 
               options={{
                 fillColor: "blue",
                 fillOpacity: 0.2,

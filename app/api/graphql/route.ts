@@ -6,6 +6,7 @@ import { getSession } from "@auth0/nextjs-auth0";
 import { headers } from 'next/headers';
 import { db } from "@/lib/db";
 import { Role } from "@/app/generated/prisma";
+import { Shift } from "@/types";
 
 // Define GraphQL schema
 const typeDefs = `#graphql
@@ -42,9 +43,13 @@ const typeDefs = `#graphql
     }
 
     type StaffLocation {
-    role: Role!
-    label: String
-    workerZone: WorkerZone
+        role: Role!
+        label: String
+        workerZone: WorkerZone
+    }
+
+    extend type Query {
+        workerZoneForCurrentUser: StaffLocation!
     }
 
    type Query {
@@ -78,6 +83,53 @@ const typeDefs = `#graphql
         message: String!
     }
 
+   input LoginUserInput {
+        email: String!
+    }
+
+    type LoginUserPayload {
+        user: User!
+    }
+
+    extend type Query {
+        loginUser(input: LoginUserInput!): LoginUserPayload!
+        shiftsForCurrentUser: [Shift!]!
+        allShiftsForAdmin: [ShiftForAdmin!]!
+    }
+
+    type Mutation {
+        clockIn(clockInLat: Float!, clockInLng: Float!, clockInNote: String): Shift!
+        clockOut(clockOutLat: Float!, clockOutLng: Float!, clockOutNote: String): Shift!
+    }
+
+    type Shift {
+        id: String!
+        clockIn: String!
+        clockOut: String
+        clockInLat: Float!
+        clockInLng: Float!
+        clockOutLat: Float
+        clockOutLng: Float
+        clockInNote: String
+        clockOutNote: String
+        userId: String!
+    }
+
+   type ShiftForAdmin { 
+        id: String!
+        clockIn: String!
+        clockOut: String
+        clockInLat: Float!
+        clockInLng: Float!
+        clockOutLat: Float
+        clockOutLng: Float
+        clockInNote: String
+        clockOutNote: String
+        userId: String!
+        user: User!
+    }
+
+
 `
 
 // Define resolvers
@@ -110,6 +162,113 @@ const resolvers = {
             return user;
         },
 
+        workerZoneForCurrentUser: async (_parent: any, _args: any, ctx: any) => {
+            if (!ctx.session?.user) {
+                throw new Error("Not authenticated");
+            }
+
+            // Find the current user
+            const user = await db.user.findUnique({
+                where: { auth0Id: ctx.session.user.sub },
+            });
+
+            if (!user) {
+                throw new Error("User not found");
+            }
+
+            // Find worker type + zone for the user's role
+            const workerType = await db.workerType.findUnique({
+                where: { role: user.role },
+                include: { zone: true },
+            });
+
+            if (!workerType) {
+                throw new Error("No worker type found for this role");
+            }
+
+            return {
+                role: workerType.role,
+                label: workerType.label,
+                workerZone: workerType.zone
+                    ? {
+                        id: workerType.zone.id,
+                        lat: workerType.zone.latitude,
+                        lng: workerType.zone.longitude,
+                        radius: workerType.zone.radius,
+                    }
+                    : null,
+            };
+        },
+
+        loginUser: async (_parent: any, { input }: any, ctx: any) => {
+            if (!ctx.session?.user) {
+                throw new Error("Not authenticated");
+            }
+
+            const auth0Id = ctx.session.user.sub;
+
+            const user = await db.user.findUnique({
+                where: { auth0Id },
+            });
+
+            if (!user) {
+                throw new Error("User not found. Please register first.");
+            }
+
+            return {
+                user,
+            };
+        },
+
+        shiftsForCurrentUser: async (_parent: any, __: any, ctx: any) => {
+            if (!ctx.session?.user) {
+                throw new Error("Not authenticated");
+            }
+
+            // Fetch all shifts for logged-in user, latest first
+            const shifts: Shift[] = await db.shift.findMany({
+                where: { userId: ctx.session?.user.id },
+                orderBy: { clockIn: "desc" },
+            });
+
+            // Convert dates to timestamps (string) for frontend compatibility
+            return shifts.map((shift) => ({
+                ...shift,
+                clockIn: shift.clockIn.getTime().toString(),
+                clockOut: shift.clockOut ? shift.clockOut.getTime().toString() : null,
+            }));
+        },
+
+        allShiftsForAdmin: async (_parent: any, _args: any, ctx: any) => {
+            if (!ctx.session?.user) {
+                throw new Error("Not authenticated");
+            }
+
+            const currentUser = await db.user.findUnique({
+                where: { auth0Id: ctx.session.user.sub },
+            });
+
+            if (!currentUser || currentUser.role !== "ADMINISTRATIVE") {
+                throw new Error("Unauthorized");
+            }
+
+            const shifts = await db.shift.findMany({
+                include: {
+                    user: true, // fetch user data
+                },
+                orderBy: { clockIn: "desc" },
+            });
+
+            // Map to ShiftForAdmin type (convert Date → String)
+            return shifts.map((shift) => ({
+                ...shift,
+                clockIn: shift.clockIn.toISOString(),
+                clockOut: shift.clockOut ? shift.clockOut.toISOString() : null,
+            }));
+        }
+        ,
+
+
         roles: () => Object.values(Role),
 
         staffLocations: async () => {
@@ -130,7 +289,7 @@ const resolvers = {
                         id: wt.zone.id,
                         lat: wt.zone.latitude,
                         lng: wt.zone.longitude,
-                        radius: wt.zone.radius /1000
+                        radius: wt.zone.radius
                     }
                     : null
             }));
@@ -218,10 +377,10 @@ const resolvers = {
                 data: {
                     latitude: lat,
                     longitude: lng,
-                    radius: radius 
+                    radius: radius
                 },
                 include: {
-                    workerType: true, 
+                    workerType: true,
                 },
             });
 
@@ -231,8 +390,79 @@ const resolvers = {
                 role: updatedZone.workerType.role,
                 lat: updatedZone.latitude,
                 lng: updatedZone.longitude,
-                radius: updatedZone.radius / 1000, 
+                radius: updatedZone.radius / 1000,
             };
+        },
+
+        clockIn: async (_parent: any, args: any, ctx: any) => {
+            if (!ctx.session?.user) {
+                throw new Error("Not authenticated");
+            }
+
+            // Get user from database
+            const user = await db.user.findUnique({
+                where: { auth0Id: ctx.session.user.sub },
+            });
+            if (!user) throw new Error("User not found");
+
+            // Check if there's already an active shift
+            const activeShift = await db.shift.findFirst({
+                where: {
+                    userId: user.id,
+                    clockOut: null,
+                },
+            });
+            if (activeShift) {
+                throw new Error("You are already clocked in.");
+            }
+
+            // Create a new shift
+            const shift = await db.shift.create({
+                data: {
+                    userId: user.id,
+                    clockIn: new Date(),
+                    clockInLat: args.clockInLat,
+                    clockInLng: args.clockInLng,
+                    clockInNote: args.clockInNote || null,
+                },
+            });
+
+            return shift;
+        },
+
+        clockOut: async (_parent: any, args: any, ctx: any) => {
+            if (!ctx.session?.user) {
+                throw new Error("Not authenticated");
+            }
+
+            const user = await db.user.findUnique({
+                where: { auth0Id: ctx.session.user.sub },
+            });
+            if (!user) throw new Error("User not found");
+
+            // Find active shift
+            const activeShift = await db.shift.findFirst({
+                where: {
+                    userId: user.id,
+                    clockOut: null,
+                },
+            });
+            if (!activeShift) {
+                throw new Error("No active shift found.");
+            }
+
+            // Update the shift with clockOut details
+            const updatedShift = await db.shift.update({
+                where: { id: activeShift.id },
+                data: {
+                    clockOut: new Date(),
+                    clockOutLat: args.clockOutLat,
+                    clockOutLng: args.clockOutLng,
+                    clockOutNote: args.clockOutNote || null,
+                },
+            });
+
+            return updatedShift;
         },
     },
 };
