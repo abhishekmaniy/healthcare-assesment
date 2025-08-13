@@ -1,36 +1,90 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 🏥 Healthcare System
 
-## Getting Started
+A **full-stack healthcare workforce management** application for tracking staff attendance, working hours, and productivity.  
+It provides **real-time clock-in/clock-out tracking, statistics, and performance analytics** for healthcare staff.
 
-First, run the development server:
+---
 
+## 📌 Features
+
+- **User Authentication** 
+- **Clock In / Clock Out Tracking** with GPS location
+- **Daily & Weekly Hours Tracking**
+- **Analytics Dashboard** with:
+  - Active Workers count
+  - Today's Check-ins
+  - Average Hours Today
+  - Total Hours Worked
+- **Hours Per Staff Tab**:
+  - Avg hours spent per day
+  - Number of daily check-ins
+  - Total weekly hours per staff
+  - 📊 Charts powered by Chart.js
+- **Responsive UI** (Ant Design + Tailwind CSS)
+- **Role-based Access** (Admin / Worker)
+
+---
+
+## 🛠️ Tech Stack
+
+### **Frontend**
+- React.js (with Vite or CRA)
+- Ant Design (UI components)
+- Grommet (UI components)
+- Tailwind CSS (styling)
+- Chart.js (data visualization)
+- Zustand (state management)
+
+### **Backend**
+- Prisma ORM
+- PostgreSQL (Database)
+- OAuth
+- Cloud Deployment (e.g., Vercel / Render)
+
+## ⚙️ Installation & Setup
+
+### 1️⃣ Clone the Repository
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+git clone https://github.com/yourusername/healthcare-assessment.git
+cd healthcare-assessment
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### 2️⃣ Install Dependencies
+```bash
+npm install
+npx prisma generate
+```
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### 3️⃣ Environment Variables
+DATABASE_URL=
+AUTH0_SECRET=
+AUTH0_BASE_URL=
+AUTH0_ISSUER_BASE_URL=
+AUTH0_CLIENT_ID=
+AUTH0_CLIENT_SECRET=
+NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### 4️⃣ Run the Application
+```bash
+npm run dev
+```
 
-## Learn More
+## 📊 Dashboard Preview
+| Card Type            | Example Metric |
+| -------------------- | -------------- |
+| Active Workers       | 15             |
+| Today's Check-ins    | 22             |
+| Avg Hours Today      | 6.4h           |
+| Total Hours (Weekly) | 280h           |
 
-To learn more about Next.js, take a look at the following resources:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+# 🚀 Deployment
+Frontend: Vercel
+Database: Neon
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## 👨‍💻 Author
+Abhishek Maniyar
+📧 Email: abhishekmaniyar502@gmail.com
+🔗 Portfolio: https://portfolio-abhishek-xi.vercel.app
+💼 LinkedIn: https://linkedin.com/in/abhishekmaniyar502/
+🐙 GitHub: https://github.com/abhishekmaniy/abhishekmaniy
